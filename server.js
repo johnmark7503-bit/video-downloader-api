@@ -10,14 +10,18 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-const ytDlpWrap = new YTDlpWrap('yt-dlp');
+// Render server par download hone wale Linux binary ka exact path set karein
+const binaryPath = path.join(__dirname, 'node_modules', '.bin', 'yt-dlp');
 const cookiesPath = path.join(__dirname, 'cookies.txt');
 
-// Helper function jo cookies ke sath ya bagair link fetch karegi
+// Agar Render par custom path na mile, toh system default standard fallback check karein
+const finalBinary = fs.existsSync(binaryPath) ? binaryPath : 'yt-dlp';
+const ytDlpWrap = new YTDlpWrap(finalBinary);
+
 async function getVideoData(videoUrl) {
     let args = [videoUrl];
     
-    // Agar cookies file maujood hai toh use arguments mein add karo
+    // Cookies check
     if (fs.existsSync(cookiesPath)) {
         console.log("Using cookies.txt for authentication...");
         args.push('--cookies', cookiesPath);
@@ -33,7 +37,7 @@ async function getVideoData(videoUrl) {
     };
 }
 
-// 1. BROWSER KE LIYE (GET Request)
+// 1. GET Request
 app.get('/api/download', async (req, res) => {
     const videoUrl = req.query.videoUrl;
     if (!videoUrl) return res.status(400).json({ success: false, error: "Video URL missing hai!" });
@@ -46,7 +50,7 @@ app.get('/api/download', async (req, res) => {
     }
 });
 
-// 2. RAPIDAPI KE LIYE (POST Request)
+// 2. POST Request
 app.post('/api/download', async (req, res) => {
     const { videoUrl } = req.body;
     if (!videoUrl) return res.status(400).json({ success: false, error: "Video URL dena zaroori hai!" });
@@ -60,5 +64,5 @@ app.post('/api/download', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`API with cookies support is running on port ${PORT}`);
+    console.log(`API is running perfectly on port ${PORT}`);
 });
