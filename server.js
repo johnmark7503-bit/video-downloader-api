@@ -10,45 +10,83 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Render ke Linux environment aur windows local dono ke liye automatic binary path selection
 const binaryPath = path.join(__dirname, 'node_modules', '.bin', 'yt-dlp');
 const finalBinary = fs.existsSync(binaryPath) ? binaryPath : 'yt-dlp';
 const ytDlpWrap = new YTDlpWrap(finalBinary);
-
 const cookiesPath = path.join(__dirname, 'cookies.txt');
 
-// Sabhi platforms (YouTube, TikTok, Insta, FB, Pinterest, X) ke liye single dynamic engine
-async function getVideoData(videoUrl) {
-    // Real Browser ki tarah spoof karne ke liye standard parameters aur user-agent
+// 🌐 Internet se bilkul fresh free HTTP proxies uthane ka function
+async function getLiveFreeProxies() {
+    try {
+        const response = await fetch('https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt');
+        const text = await response.text();
+        // Har line se IP:PORT nikal kar array bana rahe hain
+        return text.split('\n').map(p => p.trim()).filter(p => p.length > 0);
+    } catch (e) {
+        console.error("⚠️ Proxy list fetch karne mein masla aaya:", e.message);
+        return [];
+    }
+}
+
+// 🔄 Smart Retry Engine: Jo tab tak proxy badlega jab tak link nikal na aaye
+async function getVideoDataWithRetry(videoUrl) {
+    const proxyList = await getLiveFreeProxies();
+    const maxRetries = 5; // Max 5 mukhtalif free proxies try karega
+    let lastError = null;
+
+    // List mein se random proxies select karne ke liye shuffle check
+    const randomProxies = proxyList.sort(() => 0.5 - Math.random()).slice(0, maxRetries);
+
+    // Try 1: Pehle hamesha direct bina proxy ke try karein (Kya pata chal jaye)
+    try {
+        return await extractData(videoUrl, null);
+    } catch (err) {
+        console.log("⚠️ Direct request blocked by platform. Switching to Free Proxy Rotation...");
+        lastError = err;
+    }
+
+    // Try 2 to 6: Agar block ho, toh free proxies rotate karo
+    for (let i = 0; i < randomProxies.length; i++) {
+        const currentProxy = `http://${randomProxies[i]}`;
+        console.log(`🌀 Attempt ${i + 1}/${maxRetries} -> Using Free Proxy: ${currentProxy}`);
+        
+        try {
+            return await extractData(videoUrl, currentProxy);
+        } catch (err) {
+            console.error(`❌ Proxy ${currentProxy} dead thi ya response nahi aaya. Changing proxy...`);
+            lastError = err;
+        }
+    }
+
+    throw new Error(`Saari free proxies block ho chuki hain. Last error: ${lastError.message}`);
+}
+
+// 🛠️ Main Extraction Core
+async function extractData(videoUrl, proxyUrl) {
     let args = [
         videoUrl,
         '--no-playlist',
-        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        '--add-header', 'Accept-Language: en-US,en;q=0.9',
-        '--add-header', 'Sec-Fetch-Mode: navigate'
+        '--no-impersonate',
+        '--geo-bypass',
+        '--socket-timeout', '6' // Free proxies laggy hoti hain, 6 seconds mein response na aaye toh drop karo
     ];
     
-    // Agar cookies.txt maujood hai toh safe authentication ke liye inject karo
     if (fs.existsSync(cookiesPath)) {
-        console.log("🔒 System Security: Loading cookies.txt for verification...");
         args.push('--cookies', cookiesPath);
     }
 
-    // Extraction process shuru
-    let videoInfo = await ytDlpWrap.getVideoInfo(args);
+    if (proxyUrl) {
+        args.push('--proxy', proxyUrl);
+    }
 
-    // Kuch platforms direct URL dete hain aur kuch formats ke andar link chhupate hain
+    let videoInfo = await ytDlpWrap.getVideoInfo(args);
     let directUrl = videoInfo.url;
     
     if (!directUrl && videoInfo.formats) {
-        // Aise formats nikalna jo direct streamable hon aur jin mein m3u8 na ho (jo apps mein nahi chalti)
-        const cleanFormats = videoInfo.formats.filter(f => f.url && !f.url.includes('.m3u8') && f.vcodec !== 'none');
-        
-        if (cleanFormats.length > 0) {
-            // Highest quality wala link select karein
-            directUrl = cleanFormats[cleanFormats.length - 1].url;
+        const validFormats = videoInfo.formats.filter(f => f.url && !f.url.includes('.m3u8'));
+        if (validFormats.length > 0) {
+            directUrl = validFormats[validFormats.length - 1].url;
         } else {
-            // Fallback: Agar kuch na mile toh aakhri available format ka link le lo
             directUrl = videoInfo.formats[videoInfo.formats.length - 1].url;
         }
     }
@@ -57,40 +95,38 @@ async function getVideoData(videoUrl) {
         success: true,
         title: videoInfo.title || videoInfo.description || "Social Media Video",
         thumbnail: videoInfo.thumbnail || (videoInfo.thumbnails && videoInfo.thumbnails[0]?.url) || "",
-        duration: videoInfo.duration_string || (videoInfo.duration ? `${Math.floor(videoInfo.duration / 60)}:${videoInfo.duration % 60}` : "N/A"),
+        duration: videoInfo.duration_string || "N/A",
         downloadUrl: directUrl,
         platform: videoInfo.extractor_key || "Universal"
     };
 }
 
-// 1. GET REQUEST (Testing/Browser ke liye)
-app.get('/api/download', async (req, res) => {
-    const videoUrl = req.query.videoUrl;
-    if (!videoUrl) return res.status(400).json({ success: false, error: "Video URL missing hai!" });
-
-    try {
-        let data = await getVideoData(videoUrl);
-        return res.json({ method: "GET (Browser)", ...data });
-    } catch (error) {
-        console.error("Extraction failed:", error.message);
-        return res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// 2. POST REQUEST (Client App / RapidAPI ke liye)
+// 1. POST ROUTE (For Postman, Apps & RapidAPI)
 app.post('/api/download', async (req, res) => {
     const { videoUrl } = req.body;
     if (!videoUrl) return res.status(400).json({ success: false, error: "Video URL dena zaroori hai!" });
 
     try {
-        let data = await getVideoData(videoUrl);
-        return res.json({ method: "POST (API/App)", ...data });
+        let data = await getVideoDataWithRetry(videoUrl);
+        return res.json(data);
     } catch (error) {
-        console.error("Extraction failed:", error.message);
+        return res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// 2. GET ROUTE (For Quick Browser Testing)
+app.get('/api/download', async (req, res) => {
+    const videoUrl = req.query.videoUrl;
+    if (!videoUrl) return res.status(400).json({ success: false, error: "Video URL missing hai!" });
+
+    try {
+        let data = await getVideoDataWithRetry(videoUrl);
+        return res.json(data);
+    } catch (error) {
         return res.status(500).json({ success: false, error: error.message });
     }
 });
 
 app.listen(PORT, () => {
-    console.log(`🚀 Ultimate Multi-Platform Downloader Engine live on port ${PORT}`);
+    console.log(`🚀 Ultimate Auto-Proxy Rotator Engine live on port ${PORT}`);
 });
