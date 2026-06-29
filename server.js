@@ -56,7 +56,7 @@ app.post('/api/download', async (req, res) => {
 
     try {
         const result = await fetchTikTokViaTikWM(videoUrl);
-        return res.json({ method: "POST", ...result });
+        return res.json({ success: true, method: "POST", ...result });
     } catch (error) {
         console.error("Hybrid Extraction Error:", error.message);
         return res.status(500).json({ 
@@ -74,13 +74,19 @@ app.get('/api/download', async (req, res) => {
 
     try {
         const result = await fetchTikTokViaTikWM(videoUrl);
-        return res.json({ method: "GET", ...result });
+        return res.json({ success: true, method: "GET", ...result });
     } catch (error) {
         console.error("Hybrid Extraction Error:", error.message);
         return res.status(500).json({ success: false, error: error.message });
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`🚀 TikTok Hybrid Engine is running flawlessly on port ${PORT}`);
-});
+// Local Development ke liye listener (Vercel production mein ise bypass kar dega)
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(PORT, () => {
+        console.log(`🚀 Engine is running locally on port ${PORT}`);
+    });
+}
+
+// 🔥 Vercel Serverless Function Export (Crucial for Vercel deployment)
+module.exports = app;
