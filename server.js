@@ -15,37 +15,36 @@ const finalBinary = fs.existsSync(binaryPath) ? binaryPath : 'yt-dlp';
 const ytDlpWrap = new YTDlpWrap(finalBinary);
 const cookiesPath = path.join(__dirname, 'cookies.txt');
 
-// 🌐 Internet se bilkul fresh free HTTP proxies uthane ka function
+// 🌐 Live Free HTTP Proxies fetch karne ka engine
 async function getLiveFreeProxies() {
     try {
         const response = await fetch('https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt');
         const text = await response.text();
-        // Har line se IP:PORT nikal kar array bana rahe hain
         return text.split('\n').map(p => p.trim()).filter(p => p.length > 0);
     } catch (e) {
-        console.error("⚠️ Proxy list fetch karne mein masla aaya:", e.message);
+        console.error("⚠️ Proxy list fetch error:", e.message);
         return [];
     }
 }
 
-// 🔄 Smart Retry Engine: Jo tab tak proxy badlega jab tak link nikal na aaye
+// 🔄 Smart Retry Engine
 async function getVideoDataWithRetry(videoUrl) {
     const proxyList = await getLiveFreeProxies();
-    const maxRetries = 5; // Max 5 mukhtalif free proxies try karega
+    const maxRetries = 5; 
     let lastError = null;
 
-    // List mein se random proxies select karne ke liye shuffle check
+    // List mein se random proxies select karne ke liye shuffle
     const randomProxies = proxyList.sort(() => 0.5 - Math.random()).slice(0, maxRetries);
 
-    // Try 1: Pehle hamesha direct bina proxy ke try karein (Kya pata chal jaye)
+    // Try 1: Pehle hamesha direct bina proxy ke check karein
     try {
         return await extractData(videoUrl, null);
     } catch (err) {
-        console.log("⚠️ Direct request blocked by platform. Switching to Free Proxy Rotation...");
+        console.log("⚠️ Direct request blocked. Switching to Free Proxy Rotation...");
         lastError = err;
     }
 
-    // Try 2 to 6: Agar block ho, toh free proxies rotate karo
+    // Try 2 to 6: Agar block ho, toh free proxies rotate karein
     for (let i = 0; i < randomProxies.length; i++) {
         const currentProxy = `http://${randomProxies[i]}`;
         console.log(`🌀 Attempt ${i + 1}/${maxRetries} -> Using Free Proxy: ${currentProxy}`);
@@ -53,22 +52,22 @@ async function getVideoDataWithRetry(videoUrl) {
         try {
             return await extractData(videoUrl, currentProxy);
         } catch (err) {
-            console.error(`❌ Proxy ${currentProxy} dead thi ya response nahi aaya. Changing proxy...`);
+            console.error(`❌ Proxy ${currentProxy} failed or timed out.`);
             lastError = err;
         }
     }
 
-    throw new Error(`Saari free proxies block ho chuki hain. Last error: ${lastError.message}`);
+    throw new Error(`Saari free proxies block ya down ho chuki hain. Last error: ${lastError.message}`);
 }
 
-// 🛠️ Main Extraction Core
+// 🛠️ Main Extraction Core (Fixed Arguments)
 async function extractData(videoUrl, proxyUrl) {
+    // --no-impersonate hata diya gaya hai taaki syntax error khatam ho
     let args = [
         videoUrl,
         '--no-playlist',
-        '--no-impersonate',
         '--geo-bypass',
-        '--socket-timeout', '6' // Free proxies laggy hoti hain, 6 seconds mein response na aaye toh drop karo
+        '--socket-timeout', '10' // Proxies ke liye timeout 10 seconds kiya taaki data load ho sake
     ];
     
     if (fs.existsSync(cookiesPath)) {
@@ -101,7 +100,7 @@ async function extractData(videoUrl, proxyUrl) {
     };
 }
 
-// 1. POST ROUTE (For Postman, Apps & RapidAPI)
+// 1. POST ROUTE
 app.post('/api/download', async (req, res) => {
     const { videoUrl } = req.body;
     if (!videoUrl) return res.status(400).json({ success: false, error: "Video URL dena zaroori hai!" });
@@ -114,7 +113,7 @@ app.post('/api/download', async (req, res) => {
     }
 });
 
-// 2. GET ROUTE (For Quick Browser Testing)
+// 2. GET ROUTE
 app.get('/api/download', async (req, res) => {
     const videoUrl = req.query.videoUrl;
     if (!videoUrl) return res.status(400).json({ success: false, error: "Video URL missing hai!" });
@@ -128,5 +127,5 @@ app.get('/api/download', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`🚀 Ultimate Auto-Proxy Rotator Engine live on port ${PORT}`);
+    console.log(`🚀 All-Platform Fix Engine live on port ${PORT}`);
 });
