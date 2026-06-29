@@ -7,87 +7,45 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// 🔥 Smart Dual-Layer URL Expander & TikTok Extractor
-async function fetchTikTokDirect(videoUrl) {
-    let cleanUrl = videoUrl;
-
-    // Agar link short hai (vt.tiktok.com ya vm.tiktok.com), toh ise expand karein
-    if (videoUrl.includes('vt.tiktok.com') || videoUrl.includes('vm.tiktok.com')) {
-        try {
-            console.log("🔗 Short link detected. Expanding URL safely...");
-            
-            // Layer 1: Manual redirect capture (Super fast & stealthy)
-            let expandRes = await fetch(videoUrl, { 
-                method: 'GET', 
-                redirect: 'manual',
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                }
-            });
-            
-            let redirectLocation = expandRes.headers.get('location');
-            if (redirectLocation) {
-                cleanUrl = redirectLocation;
-            } else {
-                // Layer 2: Fallback to full browser simulator if layer 1 fails
-                let followRes = await fetch(videoUrl, {
-                    method: 'GET',
-                    redirect: 'follow',
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                        'Accept-Language': 'en-US,en;q=0.5'
-                    }
-                });
-                cleanUrl = followRes.url;
-            }
-            console.log(`✅ Expanded URL successfully: ${cleanUrl}`);
-        } catch (e) {
-            console.error("⚠️ URL Expand karne mein masla aaya:", e.message);
-        }
-    }
-
-    // URL se Video ID nikalna
-    const matches = cleanUrl.match(/\/video\/(\d+)/);
-    if (!matches || !matches[1]) {
-        throw new Error(`TikTok Video ID extract nahi ki ja saki URL se. Got URL: ${cleanUrl}`);
-    }
-    const videoId = matches[1];
-
-    // TikTok official direct public API endpoint को hit karna
-    const apiUrl = `https://api16-normal-c-useast1a.tiktokv.com/aweme/v1/feed/?aweme_id=${videoId}&version_code=262&app_name=musical_ly&channel=App%20Store&device_platform=iphone&aid=1233`;
-
-    const response = await fetch(apiUrl, {
-        method: 'GET',
+// 🚀 High-Speed TikTok Hybrid Engine (Bypasses Datacenter Blocks Automatically)
+async function fetchTikTokViaTikWM(videoUrl) {
+    const apiUrl = 'https://tikwm.com/api/';
+    
+    // TikWM direct query string accept karta hai aur short links khud hi resolve karta hai
+    const response = await fetch(`${apiUrl}?url=${encodeURIComponent(videoUrl)}`, {
+        method: 'POST',
         headers: {
-            'User-Agent': 'com.zhiliaoapp.musically/2022602010 (Linux; U; Android 7.1.2; en_US; MIUI/HyperOS)'
+            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
     });
 
     if (!response.ok) {
-        throw new Error(`TikTok Core Server Responded with status: ${response.status}`);
+        throw new Error(`TikWM Provider Server Responded with status: ${response.status}`);
     }
 
-    const data = await response.json();
-    
-    if (!data.aweme_list || data.aweme_list.length === 0) {
-        throw new Error("Video data not found or video might be private.");
+    const resData = await response.json();
+
+    // TikWM code 0 return karta hai success par
+    if (resData.code !== 0 || !resData.data) {
+        throw new Error(resData.msg || "Video data could not be fetched from stream cluster.");
     }
 
-    const videoData = data.aweme_list[0].video;
-    let downloadUrl = videoData.play_addr.url_list[0];
-    
-    if (downloadUrl.startsWith('http://')) {
-        downloadUrl = downloadUrl.replace('http://', 'https://');
-    }
+    const videoData = resData.data;
+
+    // Relative links ko absolute links mein convert karne ka safe check
+    const cleanDownloadUrl = videoData.play.startsWith('http') ? videoData.play : `https://tikwm.com${videoData.play}`;
+    const cleanWmDownloadUrl = videoData.wmplay.startsWith('http') ? videoData.wmplay : `https://tikwm.com${videoData.wmplay}`;
 
     return {
         success: true,
-        title: data.aweme_list[0].desc || "TikTok Video",
-        thumbnail: videoData.cover.url_list[0] || "",
-        duration: Math.round(videoData.duration / 1000) + "s",
-        downloadUrl: downloadUrl, 
-        platform: "TikTok Direct Engine"
+        title: videoData.title || "TikTok Video",
+        thumbnail: videoData.cover || "",
+        duration: videoData.duration ? videoData.duration + "s" : "N/A",
+        downloadUrl: cleanDownloadUrl,       // 🔥 High Quality No-Watermark Link
+        wmDownloadUrl: cleanWmDownloadUrl,   // Watermarked Fallback Link
+        author: videoData.author?.unique_id || "Unknown",
+        platform: "TikTok Premium Hybrid Engine"
     };
 }
 
@@ -97,13 +55,13 @@ app.post('/api/download', async (req, res) => {
     if (!videoUrl) return res.status(400).json({ success: false, error: "Video URL dena zaroori hai!" });
 
     try {
-        const result = await fetchTikTokDirect(videoUrl);
-        return res.json({ method: "POST (Direct Engine)", ...result });
+        const result = await fetchTikTokViaTikWM(videoUrl);
+        return res.json({ method: "POST", ...result });
     } catch (error) {
-        console.error("Direct Extraction Error:", error.message);
+        console.error("Hybrid Extraction Error:", error.message);
         return res.status(500).json({ 
             success: false, 
-            error: "Direct extraction failed.", 
+            error: "TikTok direct extraction failed.", 
             details: error.message 
         });
     }
@@ -115,14 +73,14 @@ app.get('/api/download', async (req, res) => {
     if (!videoUrl) return res.status(400).json({ success: false, error: "Video URL query missing hai!" });
 
     try {
-        const result = await fetchTikTokDirect(videoUrl);
-        return res.json({ method: "GET (Direct Engine)", ...result });
+        const result = await fetchTikTokViaTikWM(videoUrl);
+        return res.json({ method: "GET", ...result });
     } catch (error) {
-        console.error("Direct Extraction Error:", error.message);
+        console.error("Hybrid Extraction Error:", error.message);
         return res.status(500).json({ success: false, error: error.message });
     }
 });
 
 app.listen(PORT, () => {
-    console.log(`🚀 Direct High-Speed TikTok Engine live on port ${PORT}`);
+    console.log(`🚀 TikTok Hybrid Engine is running flawlessly on port ${PORT}`);
 });
